@@ -30,6 +30,7 @@ class UNet(nn.Module):
         self.dconv_up1 = double_conv(128 + 64, 64)
 
         self.conv_last = nn.Conv2d(64, n_class, 1)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         # Calculate padding dimensions
@@ -72,4 +73,4 @@ class UNet(nn.Module):
 
         # Crop back to the original size
         out = out[:, :, :h, :w]
-        return out
+        return self.relu(out)

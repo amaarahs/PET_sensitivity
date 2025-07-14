@@ -24,4 +24,4 @@ class VanillaCNN(nn.Module):
         out6 = self.relu(self.conv6(out5))
         out7 = self.relu(self.conv7(out6))
         out8 = self.conv8(out7)
-        return out8
+        return self.relu(out8)

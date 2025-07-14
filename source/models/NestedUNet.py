@@ -63,6 +63,8 @@ class NestedUNet(nn.Module):
             self.final4 = nn.Conv2d(nb_filter[0], num_classes, kernel_size=1)
         else:
             self.final = nn.Conv2d(nb_filter[0], num_classes, kernel_size=1)
+            
+        self.relu = nn.ReLU(inplace=True)
 
 
     def forward(self, input):
@@ -111,7 +113,7 @@ class NestedUNet(nn.Module):
         else:
             output = self.final(x0_4)
             output_cropped = output[..., 3:-2, 3:-2]
-            return output_cropped
+            return self.relu(output_cropped)
         
         
 

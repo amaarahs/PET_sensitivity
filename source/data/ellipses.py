@@ -8,6 +8,7 @@ from sirf.STIR import AcquisitionSensitivityModel, AcquisitionModelUsingRayTraci
 from .misc import random_phantom, affine_transform_2D_image
 
 MAX_PHANTOM_INTENSITY = 0.096 * 2
+mu_water = 0.096
 
 def generate_random_transform_values() -> tuple:
     """
@@ -38,10 +39,14 @@ class EllipsesDataset(torch.utils.data.Dataset):
         num_samples: Number of samples in the dataset.
         mode: Dataset mode (train, validation, test).
         seed: Random seed for phantom generation.
+        norm_mode: Method of normalisation used
+            - 'voxelwise': Normalize by non-attenuated sensitivity (per voxel).
+            - 'scalar': Normalize by max value of original sensitivity (global scalar).
+            - 'none': No normalization applied to sensitivity images.
     """
 
     def __init__(self, attenuation_image_template, sinogram_template, num_samples,
-                 generate_non_attenuated_sensitivity=False):
+                 generate_non_attenuated_sensitivity=False, norm_mode='voxelwise'):
                  
         self.num_samples = num_samples
 
@@ -56,6 +61,8 @@ class EllipsesDataset(torch.utils.data.Dataset):
         self.one_sino = sinogram_template.get_uniform_copy(1)
 
         self.generate_non_attenuated_sensitivity = generate_non_attenuated_sensitivity
+        
+        self.norm_mode = norm_mode
 
     def _get_sensitivity_image(self, ct_image, attenuation=True):
         """
@@ -89,9 +96,33 @@ class EllipsesDataset(torch.utils.data.Dataset):
         ct_image_transform = affine_transform_2D_image(theta, tx, ty, sx, sy, ct_image)
         ct_image_transform.move_to_scanner_centre(self.template)
         sens_image_transform = self._get_sensitivity_image(ct_image_transform)
+        sens_image_no_att = self._get_sensitivity_image(ct_image, attenuation=False)
+        
+        # normalise images by either non attenuated or max sensitivity value
+        if self.norm_mode == 'voxelwise':
+            norm_sens_image_no_att = sens_image_no_att.as_array()
+            denom = norm_sens_image_no_att + 1e-6
+        elif self.norm_mode == 'scalar':
+            denom = sens_image.as_array().max()
+            norm_sens_image_no_att = sens_image_no_att.as_array() / denom
+        elif self.norm_mode == 'none':
+            denom = 1
+            norm_sens_image_no_att = sens_image_no_att.as_array()
+        else:
+            raise ValueError(f"Invalid normalisation mode: {self.norm_mode}")
+            
+        norm_sens_image = sens_image.as_array()/denom
+        norm_sens_image_transform = sens_image_transform.as_array()/denom
+        
+        if self.norm_mode =='none':
+            norm_ct_image_transform = ct_image_transform.as_array()
+        else:
+            norm_ct_image_transform = ct_image_transform.as_array()/mu_water
+        
 
         if self.generate_non_attenuated_sensitivity:
-            sens_image_no_att = self._get_sensitivity_image(ct_image, attenuation=False)
-            return np.array([sens_image.as_array().squeeze(), sens_image_no_att.as_array().squeeze(), ct_image_transform.as_array().squeeze()]), sens_image_transform.as_array().squeeze()
-
-        return np.array([sens_image.as_array().squeeze(), ct_image_transform.as_array().squeeze()]), sens_image_transform.as_array().squeeze()
+            return np.array([norm_sens_image.squeeze(), norm_sens_image_no_att.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze() 
+        
+        # returns normalised original sensitivity and transformed attenuation
+        return np.array([norm_sens_image.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze()
+ 

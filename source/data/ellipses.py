@@ -40,13 +40,13 @@ class EllipsesDataset(torch.utils.data.Dataset):
         mode: Dataset mode (train, validation, test).
         seed: Random seed for phantom generation.
         norm_mode: Method of normalisation used
-            - 'voxelwise': Normalize by non-attenuated sensitivity (per voxel).
-            - 'scalar': Normalize by max value of original sensitivity (global scalar).
-            - 'none': No normalization applied to sensitivity images.
+            - 'max': Normalize by the max of non-attenuated sensitivity.
+            - 'mean': Normalize by the mean of non-attenuated sensitivity.
+            - 'none': No normalisation applied to sensitivity images.
     """
 
     def __init__(self, attenuation_image_template, sinogram_template, num_samples,
-                 generate_non_attenuated_sensitivity=False, norm_mode='voxelwise'):
+                 generate_non_attenuated_sensitivity=False, norm_mode='max'):
                  
         self.num_samples = num_samples
 
@@ -98,31 +98,32 @@ class EllipsesDataset(torch.utils.data.Dataset):
         sens_image_transform = self._get_sensitivity_image(ct_image_transform)
         sens_image_no_att = self._get_sensitivity_image(ct_image, attenuation=False)
         
-        # normalise images by either non attenuated or max sensitivity value
-        if self.norm_mode == 'voxelwise':
-            norm_sens_image_no_att = sens_image_no_att.as_array()
-            denom = norm_sens_image_no_att + 1e-6
-        elif self.norm_mode == 'scalar':
-            denom = sens_image.as_array().max()
-            norm_sens_image_no_att = sens_image_no_att.as_array() / denom
+        # normalise images by either the max or mean of non-attenuated sensitivity image 
+        if self.norm_mode == 'max':
+            denom = sens_image_no_att.as_array().max() + 1e-8
+        elif self.norm_mode == 'mean':
+            denom = np.mean(sens_image_no_att.as_array()) + 1e-8
         elif self.norm_mode == 'none':
             denom = 1
-            norm_sens_image_no_att = sens_image_no_att.as_array()
         else:
             raise ValueError(f"Invalid normalisation mode: {self.norm_mode}")
             
         norm_sens_image = sens_image.as_array()/denom
         norm_sens_image_transform = sens_image_transform.as_array()/denom
+        norm_sens_image_no_att = sens_image_no_att.as_array()/denom
+
         
         if self.norm_mode =='none':
+            norm_ct_image = ct_image.as_array()
             norm_ct_image_transform = ct_image_transform.as_array()
         else:
+            norm_ct_image = ct_image.as_array()/mu_water
             norm_ct_image_transform = ct_image_transform.as_array()/mu_water
         
-
+        # includes non-attenuated sensitivity image in inputs
         if self.generate_non_attenuated_sensitivity:
-            return np.array([norm_sens_image.squeeze(), norm_sens_image_no_att.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze() 
+            return np.array([norm_sens_image.squeeze(), norm_sens_image_no_att.squeeze(), norm_ct_image.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze() 
         
-        # returns normalised original sensitivity and transformed attenuation
-        return np.array([norm_sens_image.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze()
+        # returns normalised original sensitivity , original attenuation, transformed attenuation images for inputs and transformed senstivity for target
+        return np.array([norm_sens_image.squeeze(), norm_ct_image.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze()
  

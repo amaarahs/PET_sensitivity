@@ -14,7 +14,7 @@ def double_conv(in_channels, out_channels):
     )
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=2, n_class=1):
+    def __init__(self, in_channels=3, n_class=1):
         super().__init__()
 
         self.dconv_down1 = double_conv(in_channels, 64)
@@ -73,4 +73,4 @@ class UNet(nn.Module):
 
         # Crop back to the original size
         out = out[:, :, :h, :w]
-        return self.relu(out)
+        return out

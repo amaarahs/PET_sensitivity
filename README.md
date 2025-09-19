@@ -1,6 +1,6 @@
 # Using Deep Learning to Estimate Average PET Sensitivity to Correct for Motion in PET 
 
-This project investigates the use of deep learning to estimate motion-affected sensitivity images in Positron Emission Tomography (PET). A U-Net convolutional neural network was implemented to predict transformed sensitivity images, which were then used for image reconstruction with the Synergistic Image Reconstruction Framework (SIRF).  
+This project investigates the use of deep learning to estimate motion-affected sensitivity images in Positron Emission Tomography (PET). A U-Net convolutional neural network was implemented to predict transformed sensitivity images, which were then used for image reconstruction with the Synergistic Image Reconstruction Framework (SIRF). This project used a high-performance computing cluster (HPC) to train the U-Net model used, as the data required is large. 
 
 Different output variations and normalisation strategies were compared, with models fine-tuned and tested on the BrainWeb dataset. Results showed that deep learning can produce sensitivity images and reconstructions close to aligned references, demonstrating the feasibility of this approach for PET motion correction.  
 

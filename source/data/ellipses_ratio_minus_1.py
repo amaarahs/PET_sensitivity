@@ -42,7 +42,7 @@ class EllipsesDataset(torch.utils.data.Dataset):
         norm_mode: Method of normalisation used
             - 'max': Normalise by the max of non-attenuated sensitivity image.
             - 'mean': Normalise by the mean of non-attenuated sensitivity image.
-            - 'median': Normalise by the median of non-attenuated sensitivity image.
+            - 'median: Normalise by the median of non-attenuated sensitivity image.
             - 'none': No normalisation applied to sensitivity images.
     """
 
@@ -99,7 +99,7 @@ class EllipsesDataset(torch.utils.data.Dataset):
         sens_image_transform = self._get_sensitivity_image(ct_image_transform)
         sens_image_no_att = self._get_sensitivity_image(ct_image, attenuation=False)
         
-        # normalise images by either the max or mean of non-attenuated sensitivity image 
+        # normalise images by either the nothing or max, mean, median of non-attenuated sensitivity image 
         if self.norm_mode == 'max':
             denom = sens_image_no_att.as_array().max() + 1e-8
         elif self.norm_mode == 'mean':
@@ -112,21 +112,36 @@ class EllipsesDataset(torch.utils.data.Dataset):
             raise ValueError(f"Invalid normalisation mode: {self.norm_mode}")
             
         norm_sens_image = sens_image.as_array() / denom
-        norm_sens_image_transform = sens_image_transform.as_array() / denom
         norm_sens_image_no_att = sens_image_no_att.as_array() / denom
+        norm_sens_image_transform = sens_image_transform.as_array()/denom
+        sens_ratio = (norm_sens_image_transform / (norm_sens_image + 1e-8)) - 1
 
         
         if self.norm_mode =='none':
-            norm_ct_image = ct_image.as_array()
             norm_ct_image_transform = ct_image_transform.as_array()
+            atten_diff = ct_image_transform.as_array() - ct_image.as_array()
         else:
-            norm_ct_image = ct_image.as_array() / mu_water
             norm_ct_image_transform = ct_image_transform.as_array() / mu_water
+            norm_ct_image = ct_image.as_array() / mu_water
+            atten_diff = norm_ct_image_transform - norm_ct_image
+            
+            if self.generate_non_attenuated_sensitivity:
+                X = np.stack([
+                    norm_sens_image.squeeze(),
+                    norm_sens_image_no_att.squeeze(),
+                    norm_ct_image_transform.squeeze(),
+                    atten_diff.squeeze()
+                ], axis=0)  
+                y = sens_ratio.squeeze()[None, ...]  
+                return X, y # return inputs and outputs
+
+            else:
+                X = np.stack([
+                    norm_sens_image.squeeze(),
+                    norm_ct_image_transform.squeeze(),
+                    atten_diff.squeeze()
+                ], axis=0)  
+                y = sens_ratio.squeeze()[None, ...]  
+                return X, y
         
-        # includes non-attenuated sensitivity image in inputs
-        if self.generate_non_attenuated_sensitivity:
-            return np.array([norm_sens_image.squeeze(), norm_sens_image_no_att.squeeze(), norm_ct_image.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze() 
-        
-        # returns normalised original sensitivity , original attenuation, transformed attenuation images for inputs and transformed senstivity for target
-        return np.array([norm_sens_image.squeeze(), norm_ct_image.squeeze(), norm_ct_image_transform.squeeze()]), norm_sens_image_transform.squeeze()
- 
+     

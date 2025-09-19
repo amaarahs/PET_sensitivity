@@ -32,7 +32,8 @@ def parse_args():
     parser.add_argument('-s', '--data_path', type=str, default=os.path.join(dir_path, 'data', 'training_data'), help='Path to data')
     parser.add_argument('-f', '--filename', type=str, default='ellipses', help='Filename of data')
     parser.add_argument('-g', '--generate_non_attenuated_sensitivity', action='store_true', help='include non-attenuated sensitivity')
-    parser.add_argument('-r', '--train_valid_ratio', type=float, default=0.8, help='ratio of training to validation data')
+    parser.add_argument('-r', '--train_ratio', type=float, default=0.8, help='ratio of training data')
+    parser.add_argument('-v', '--valid_ratio', type=float, default=0.1, help='ratio of validation data')
     parser.add_argument('--n_epochs', type=int, default=1000, help='number of epochs')
     parser.add_argument('--save_path', type=str, default=os.path.join(dir_path, 'data', 'trained_models'), help='path to save data')
     parser.add_argument('--scheduler', type=str, choices=['StepLR', 'ReduceLROnPlateau', 'CosineAnnealingLR', 'None'], default="None", help='scheduler type')
@@ -41,28 +42,35 @@ def parse_args():
     parser.add_argument('--data_suffix', type=int, default=0, help='suffix of saved data')
     return parser.parse_args()
 
-def load_data(data_path, save_name, n_samples, train_valid_ratio, incl, suffix):
+def load_data(data_path, save_name, n_samples, train_ratio, valid_ratio, incl, suffix):
     if incl: 
         gen_attn = "plus_non_attenuated"
     else:
         gen_attn = "original"
     X = torch.load(os.path.join(data_path, gen_attn, f'{save_name}_X_train_n{n_samples}_{suffix}.pt'))
     y = torch.load(os.path.join(data_path, gen_attn, f'{save_name}_y_train_n{n_samples}_{suffix}.pt'))
-    train_size = int(train_valid_ratio * len(X))
+    
+    total_samples = len(X)
+    train_size = int(train_ratio * total_samples)
+    valid_size = int(valid_ratio * total_samples)
+    test_size = total_samples - train_size - valid_size
     X_train, y_train = X[:train_size], y[:train_size]
-    X_valid, y_valid = X[train_size:], y[train_size:]
+    X_valid, y_valid = X[train_size:train_size+valid_size], y[train_size:train_size+valid_size]
+    X_test, y_test = X[train_size+valid_size:], y[train_size+valid_size:]
     
     # ensure that data with 1 channel is expanded to a 4D tensor
     if X_train.ndim == 3:
         X_train = X_train.unsqueeze(1)
         X_valid = X_valid.unsqueeze(1)
+        X_test = X_test.unsqueeze(1)
     if y_train.ndim == 3:
         y_train = y_train.unsqueeze(1)
         y_valid = y_valid.unsqueeze(1)
+        y_test = y_test.unsqueeze(1)
     
-    return X_train, y_train, X_valid, y_valid
+    return X_train, y_train, X_valid, y_valid, X_test, y_test
 
-def get_model(model_name, in_channels=3, out_channels=1):
+def get_model(model_name, in_channels=4, out_channels=1):
     models = {
         'NUNet': NestedUNet(in_channels, out_channels),
         'UNet': UNet(in_channels, out_channels)
@@ -115,17 +123,22 @@ def plot_loss(train_losses, valid_losses, filename):
 def main():
     args = parse_args()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    X_train, y_train, X_valid, y_valid = load_data(args.data_path, args.filename, args.num_samples, args.train_valid_ratio, args.generate_non_attenuated_sensitivity, args.data_suffix)
+    X_train, y_train, X_valid, y_valid, X_test, y_test = load_data(args.data_path, args.filename, args.num_samples, args.train_ratio, args.valid_ratio, args.generate_non_attenuated_sensitivity, args.data_suffix)
 
     # create directory to save model
-    save_path = os.path.join(args.save_path, args.save_name + f'_m:{args.model}_n{args.num_samples}_e{args.n_epochs}_lr{args.learning_rate}_b{args.batch_size}_s{args.train_valid_ratio}_r{args.data_suffix}_g{args.generate_non_attenuated_sensitivity}')
+    save_path = os.path.join(args.save_path, args.save_name + f'_m_{args.model}_n{args.num_samples}_e{args.n_epochs}_lr{args.learning_rate}_b{args.batch_size}_s{args.train_ratio}_{args.valid_ratio}_r{args.data_suffix}_g{args.generate_non_attenuated_sensitivity}')
     if not os.path.exists(save_path):
         os.makedirs(save_path)
+        
+    # Save test set to reuse later
+    torch.save(X_test, os.path.join(save_path, "X_test.pt"))
+    torch.save(y_test, os.path.join(save_path, "y_test.pt"))
 
     train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=args.batch_size, shuffle=True)
     valid_loader = DataLoader(TensorDataset(X_valid, y_valid), batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=args.batch_size, shuffle=False)
 
-    in_channels = 3 if args.generate_non_attenuated_sensitivity else 2
+    in_channels = 4 if args.generate_non_attenuated_sensitivity else 3
     out_channels = 1
     model = get_model(args.model, in_channels, out_channels).to(device)
 
@@ -163,6 +176,12 @@ def main():
             save_checkpoint(model, optimizer, os.path.join(save_path, checkpoint_filename))
         
         print(f'Epoch {epoch+1}/{args.n_epochs} - Train Loss: {train_loss:.4f}, Valid Loss: {valid_loss:.4f}')
+        
+    # Calculate test loss
+    test_loss = validate_epoch(model, test_loader, loss_fn, device)
+    rmse_test_loss = np.sqrt(test_loss)
+    print(f'Final test loss: {test_loss:.4f}')
+    print(f'Test RMSE: {rmse_test_loss:.4f}')
 
     # Save final model
     date = pd.Timestamp.now().strftime("%Y%m%d%H%M")
@@ -178,7 +197,11 @@ def main():
     
     # save losses to csv
     losses = pd.DataFrame({'train_loss': train_losses, 'valid_loss': valid_losses})
+    # Add test loss 
+    losses = losses.assign(test_loss=np.nan, test_rmse=np.nan)
+    losses.loc[len(losses)] = [np.nan, np.nan, test_loss, rmse_test_loss]
     losses.to_csv(os.path.join(save_path, 'losses.csv'), index=False)
+
 
 if __name__ == '__main__':
     main()

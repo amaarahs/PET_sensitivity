@@ -27,6 +27,7 @@ def parse_arguments():
     parser.add_argument('-d', '--data_path', type=str, default=f'{dir_path}/data/template_data', help='Path to data')
     parser.add_argument('-f', '--filename', type=str, default='ellipses', help='Filename of saved data')
     parser.add_argument('-g', '--generate_non_attenuated_sensitivity', action='store_true', help='Generate non-attenuated sensitivity')
+    parser.add_argument('-m', '--norm_mode', type=str, choices=['max', 'mean', 'median', 'none'], default='max', help='Choose normalisation method')
     return parser.parse_args()
 
 def setup_device():
@@ -45,7 +46,7 @@ def main(args=None):
     template = AcquisitionData(os.path.join(args.data_path, 'template_sinogram.hs'))
 
     train_dataloader = torch.utils.data.DataLoader(
-        EllipsesDataset(attn_image, template,  num_samples=args.num_samples, generate_non_attenuated_sensitivity=args.generate_non_attenuated_sensitivity),
+        EllipsesDataset(attn_image, template,  num_samples=args.num_samples, generate_non_attenuated_sensitivity=args.generate_non_attenuated_sensitivity, norm_mode=args.norm_mode),
         batch_size=args.num_samples, shuffle=True)
 
     # Data processing
@@ -78,18 +79,18 @@ def save_data(args, X_train, y_train):
     else:
         save_path = os.path.join(args.save_path, 'original')
 
-    x_filename = f'{args.filename}_X_train_n{args.num_samples}_0.pt'
-    y_filename = f'{args.filename}_y_train_n{args.num_samples}_0.pt'
+    x_filename = f'{args.filename}_X_train_n{args.num_samples}_{args.norm_mode}_0.pt'
+    y_filename = f'{args.filename}_y_train_n{args.num_samples}_{args.norm_mode}_0.pt'
 
     x_file = os.path.join(save_path, x_filename)
     y_file = os.path.join(save_path, y_filename)
 
     if Path(x_file).exists():
         i = 1
-        while (Path(os.path.join(save_path, f'{args.filename}_X_train_n{args.num_samples}_{i}.pt'))).exists():
+        while (Path(os.path.join(save_path, f'{args.filename}_X_train_n{args.num_samples}_{args.norm_mode}_{i}.pt'))).exists():
             i += 1
-        x_file = os.path.join(save_path, f'{args.filename}_X_train_n{args.num_samples}_{i}.pt')
-        y_file = os.path.join(save_path, f'{args.filename}_y_train_n{args.num_samples}_{i}.pt')
+        x_file = os.path.join(save_path, f'{args.filename}_X_train_n{args.num_samples}_{args.norm_mode}_{i}.pt')
+        y_file = os.path.join(save_path, f'{args.filename}_y_train_n{args.num_samples}_{args.norm_mode}_{i}.pt')
 
     torch.save(X_train, x_file)
     torch.save(y_train, y_file)

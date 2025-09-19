@@ -14,7 +14,7 @@ def double_conv(in_channels, out_channels):
     )
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=2, n_class=1):
+    def __init__(self, in_channels=3, n_class=1):
         super().__init__()
 
         self.dconv_down1 = double_conv(in_channels, 64)
@@ -30,6 +30,7 @@ class UNet(nn.Module):
         self.dconv_up1 = double_conv(128 + 64, 64)
 
         self.conv_last = nn.Conv2d(64, n_class, 1)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         # Calculate padding dimensions
